@@ -25,9 +25,9 @@
 #define REQUEST_BUFF_SIZE	8192 // 8KiB
 #define DATE_BUFF_SIZE		128  // 128 caracteres
 #define COOKIE_BUFF_SIZE	128  // 128 caracteres
-#define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
+#define EXTENSIONS_ENABLED	1 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 	3
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE	"index.html"
@@ -36,6 +36,7 @@
 /* Variables globales para la gestión de código en PHP */
 int IS_PHP = 0;
 char* PHP_PATH = "";
+char* PHP_QUERY = "";
 /* Variables globales para la gestión de cookies */
 int cookie_value = -1;
 
@@ -97,7 +98,7 @@ char* date_as_string(int incremento_minutos) {
 }
 
 int parse_post(char *post) {
-	char* peticion = strstr(post, "email=") + 6;
+	char* peticion = strstr(post, "email=") + 6; // +6 por quedarnos al final de 'email='
 	if (peticion == NULL) return -1;
 	int fd_form = open("accion_form.html", O_RDWR | O_CREAT | O_TRUNC, 0600);
 	char* mensaje;
@@ -114,7 +115,7 @@ int parse_post(char *post) {
 void parse_get(char *stream, char **path, char **query) {
 	char* start_get = strchr(stream, ' ') + 2; // Inicio del path (sin '/')
 	char* query_get = strchr(stream, '?');     // Posible query ('?')
-	char* end_get = strchr(start_get, ' ');	   // Fin del path
+	char* end_get   = strchr(start_get, ' ');  // Fin del path
 
 	/* TODO: mirar si existe en cada directorio un index.html, por ejemplo
 		si entro en /otrapagina/ que se abra el index.html de ahí */
@@ -136,21 +137,28 @@ void parse_get(char *stream, char **path, char **query) {
 		*path = strdup(DEFAULT_HTML_FILE);
 		*query = malloc(sizeof(char) * query_size);
 		strncpy(*query, start_get, end_get - query_get);
-		(*query)[query_size] = '\0';
+		(*query)[query_size - 1] = '\0';
 		return;
 	}
 
-	/* Rellenamos el puntero path */
-	*path = malloc(sizeof(char) * path_size);
-	strncpy(*path, start_get, end_get - start_get);
-	(*path)[path_size] = '\0';
+	if (!query_get) { // No existe query
+		/* Rellenamos el puntero path */
+		*path = malloc(sizeof(char) * path_size);
+		strncpy(*path, start_get, end_get - start_get);
+		(*path)[path_size - 1] = '\0';
+	} else { // Existe un query
+		/* Rellenamos el puntero path */
+		path_size = (query_get - start_get) + 1; // 1 para '\0'
+		*path = malloc(sizeof(char) * path_size);
+		strncpy(*path, start_get, query_get - start_get);
+		(*path)[path_size - 1] = '\0';
 
-	/* Si existe un query se rellena */
-	if (query_get != NULL) {
+		/* Rellenamos el puntero query */
 		*query = malloc(sizeof(char) * query_size);
-		strncpy(*query, start_get, end_get - query_get);
-		(*query)[query_size] = '\0';
+		strncpy(*query, query_get, end_get - query_get);
+		(*query)[query_size - 1] = '\0';
 	}
+
 }
 
 /* Comprbamos el formato de 'Cabecera: Datos \r\n' */
@@ -172,6 +180,10 @@ int peticion_mal_formada(char* buffer) {
 
 /* Devuelve la extensión corresponiente según la tabla 'extensions' */
 char* analyze_extension(char* extension) {
+	//
+	//	Evaluar el tipo de fichero que se está solicitando, y actuar en
+	//	consecuencia devolviendolo si se soporta u devolviendo el error correspondiente en otro caso
+	//
 	extension = strrchr(extension, '.'); // Cogemos a partir del último punto
 	if (!extension) return NULL;
 	extension++; // Le quitamos el punto
@@ -222,20 +234,61 @@ int forbidden_paths(char *path) {
 
 char* make_cookie() {
 	char cookie[COOKIE_BUFF_SIZE];
-	//printf("Cookie era: %d\n", cookie_value);
 	char* timeout = date_as_string(COOKIE_TIMEOUT);
 	if (cookie_value < 0) { // cookie_value incial (-1)
 		sprintf(cookie, "Set-Cookie: cookie_counter=1; expires=%s", timeout);
-		//printf("Hago un setcookie a inicio = 1\n"); // DELETE
 	} else if (cookie_value < MAX_COOKIE_REQUEST) {
 		sprintf(cookie, "Set-Cookie: cookie_counter=%d; expires=%s", ++cookie_value, timeout);
-		//printf("Hago un setcookie a %d\n", cookie_value); // DELETE
 	} else {
 		free(timeout);
 		return NULL;
 	}
 	free(timeout);
 	return strdup(cookie);
+}
+
+int php(int fd, int fd_fichero) {
+	if (PHP_ENABLED && IS_PHP) {
+		if (fork() == 0) { 		// Hijo
+			close(fd_fichero);  // El hijo cierra no necesita este fd
+			dup2(fd, 1);		// Salida estandar -> fd del socket
+			if (!PHP_QUERY) {
+				/* Si no hay QUERY para el PHP */
+				execl("/usr/bin/php", "php", PHP_PATH, NULL);
+			} else {
+				/* Hay un query que le pasamos al PHP */
+				PHP_QUERY++; 			// nos saltamos '?'
+				int num_argumentos = 1; // Argumentos totales (separados por '&')
+				char* aux = PHP_QUERY;
+				while (*aux) if (*aux++ == '&') num_argumentos++;
+				int total_argumentos = 3 + num_argumentos; // 3 argumentos fijos
+				char *argumentos[total_argumentos];
+				argumentos[0] = "php"; 					   // Fijo 1
+				argumentos[1] = PHP_PATH;				   // Fijo 2
+				argumentos[total_argumentos - 1] = NULL;   // Fijo 3
+				int argumento_variable = 2; 			   // Empieza por '2'
+				char* linea = strtok(PHP_QUERY, "&");
+				while (linea) {
+					argumentos[argumento_variable++] = linea;
+					linea = strtok(NULL, "&");
+				}
+				execv("/usr/bin/php", argumentos);
+			}
+			/* Esto no debería ejecutarse si PHP está instalado */
+			perror("PHP no instalado");
+			exit(EXIT_FAILURE);
+
+		} else { // Padre
+			/* Esperamos al hijo, resetamos variables globales
+			 * e indicamos que hemos ejecutado PHP */
+			wait(NULL);
+			IS_PHP = 0;
+			PHP_PATH = "";
+			PHP_QUERY= "";
+			return 1;
+		}
+	}
+	return 0; // No hay que ejecutar PHP
 }
 
 void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extension) {
@@ -253,22 +306,12 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 		char* hora = date_as_string(0);
 		indice += sprintf(respuesta + indice, "%s", hora);
 		free(hora);
-		if (PHP_ENABLED && IS_PHP) {
-			if (fork() == 0) { // Hijo
-				close(fd_fichero);
-				int fd_prueba = open("auxiliar.php", O_RDWR | O_CREAT | O_TRUNC, 0600);
-				dup2(fd_prueba, 1);
-				execl("/usr/bin/php", "php", PHP_PATH, (char *)0);
-			} else {
-				wait(NULL);
-				fd_fichero = open("auxiliar.php", O_RDONLY);
-			}
+		if (php(fd, fd_fichero)) {
+			free(cookie);
+			return;
 		}
 		indice += sprintf(respuesta + indice, "Content-Length: %d\r\n", get_fd_size(fd_fichero));
 		indice += sprintf(respuesta + indice, "Content-Type: %s\r\n", extension);
-		indice += sprintf(respuesta + indice, "Connection: Keep-Alive");
-		//indice += sprintf(respuesta + indice, "Keep-Alive: timeout=5000, max=10000");
-		
 		if (COOKIES_ENABLED) indice += sprintf(respuesta + indice, "%s", cookie);
 		indice += sprintf(respuesta + indice, "\r\n");
 		break;
@@ -282,30 +325,41 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 
 	free(cookie);
 
+	//
+	//	En caso de que el fichero sea soportado, exista, etc. se envia el fichero con la cabecera
+	//	correspondiente, y el envio del fichero se hace en blockes de un máximo de  8kB
+	//
+
+	debug(LOG, "Enviamos", respuesta, fd);
+
 	write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
 	if (tipo_respuesta == OK) {
 		/* Leemos el fichero y lo escribimos en nuestro socket */
-		char buffer_fichero[REQUEST_BUFF_SIZE];
 		int bytes_leidos;
-		while ((bytes_leidos = read(fd_fichero, &buffer_fichero, REQUEST_BUFF_SIZE)) > 0) {
-			write(fd, buffer_fichero, bytes_leidos);
-		}
-		if (PHP_ENABLED && IS_PHP) {
-			remove("auxiliar.php");
-			IS_PHP = 0;
-			PHP_PATH = "";
+		while ((bytes_leidos = read(fd_fichero, &respuesta, REQUEST_BUFF_SIZE)) > 0) {
+			write(fd, respuesta, bytes_leidos);
 		}
 	}
 }
 
-int parar() {
-	return 0;
+int process_web_check(int fd) {
+	struct timeval tv;
+	fd_set readfds;
+	tv.tv_sec = 20;
+	tv.tv_usec = 0;
+	FD_ZERO(&readfds);
+	FD_SET(fd, &readfds);
+	// En este ejemplo, deber�amos asignarle el valor sockfd + 1 ,
+	//puesto que es seguro que tendr� un valor mayor que la entrada est�ndar (0).
+	select(fd + 1, &readfds, NULL, NULL, &tv);
+	if (FD_ISSET(fd, &readfds))
+		return 1; //hay cosas x leer
+	else
+		return 0; //expir� el timerout
 }
 
 void process_web_request(int fd) {
-
-	while (!parar()) {
-		printf("%d\n", getpid());
+	while (1) {
 		debug(LOG, "Request", "Ha llegado una peticion", fd);
 
 		//
@@ -330,6 +384,7 @@ void process_web_request(int fd) {
 
 		if (bytes_leidos < 0) { // Si es -1
 			perror("read");
+			close(fd);
 			exit(EXIT_FAILURE);
 		}
 
@@ -341,9 +396,11 @@ void process_web_request(int fd) {
 		buffer[bytes_leidos] = '\0';
 
 		/* Gestión de cookies */
-		char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
-		char* cookie_string = strstr(buffer, cookie_loc);
-		if (cookie_string)  cookie_value = atoi(cookie_string + strlen(cookie_loc));
+		if (COOKIES_ENABLED) {
+			char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
+			char* cookie_string = strstr(buffer, cookie_loc);
+			if (cookie_string) cookie_value = atoi(cookie_string + strlen(cookie_loc));
+		}
 
 		//
 		// Se eliminan los caracteres de retorno de carro y nueva linea
@@ -352,8 +409,9 @@ void process_web_request(int fd) {
 		peticion = remove_from_string(buffer, "\r\n");
 		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
 		if (!primera_linea_end || peticion_mal_formada(buffer)) {
+			printf("buffer:%s\n", buffer);
 			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-			free(peticion); continue;
+			free(peticion); close(fd); exit(1);
 		}
 
 		char primera_linea[primera_linea_end - peticion];
@@ -366,7 +424,7 @@ void process_web_request(int fd) {
 		if (!((is_post != NULL) ^ (is_get != NULL))) { // XOR
 			/* Posibilidad de existencia de 'POST' o 'GET' en la primera línea */
 			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-			free(peticion); continue;
+			free(peticion); close(fd); exit(1);
 		}
 
 		if (is_post) {
@@ -381,6 +439,7 @@ void process_web_request(int fd) {
 			/* Tratamos el caso de un GET */
 			parse_get(primera_linea, &path, &query);
 			PHP_PATH = path;
+			PHP_QUERY = query;
 			extension = analyze_extension(path);
 			fd_fichero = open(path, O_RDONLY);
 			int tipo_respuesta;
@@ -396,23 +455,9 @@ void process_web_request(int fd) {
 			enviar_respuesta(fd, tipo_respuesta, fd_fichero, extension);
 		}
 
-
-		//
-		//	Evaluar el tipo de fichero que se está solicitando, y actuar en
-		//	consecuencia devolviendolo si se soporta u devolviendo el error correspondiente en otro caso
-		//
-
-
-		//
-		//	En caso de que el fichero sea soportado, exista, etc. se envia el fichero con la cabecera
-		//	correspondiente, y el envio del fichero se hace en blockes de un máximo de  8kB
-		//
-
-		free(peticion); free(path); free(query); free(extension);
-		close(fd_fichero);
+		free(peticion); free(path); free(query); free(extension); close(fd_fichero);
 	}
-	close(fd);
-	exit(1);
+	close(fd); exit(1);
 }
 
 int main(int argc, char **argv)

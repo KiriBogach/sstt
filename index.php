@@ -11,6 +11,7 @@
         }
         </style>
         <title>Servidor Simple para Servicios Telem&acute;ticos</title>
+        <link rel="icon" type="image/ico" href="recursos/favicon.ico" sizes="192x192" />
     </head>
     <body bgcolor="lightgray">
         <h1>Esta es una pagina de prueba</h1>

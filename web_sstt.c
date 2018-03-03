@@ -27,7 +27,7 @@
 #define COOKIE_BUFF_SIZE	128  // 128 caracteres
 #define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 	3
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE	"index.html"
@@ -137,7 +137,7 @@ void parse_get(char *stream, char **path, char **query) {
 		*path = strdup(DEFAULT_HTML_FILE);
 		*query = malloc(sizeof(char) * query_size);
 		strncpy(*query, start_get, end_get - query_get);
-		(*query)[query_size] = '\0';
+		(*query)[query_size - 1] = '\0';
 		return;
 	}
 
@@ -145,18 +145,18 @@ void parse_get(char *stream, char **path, char **query) {
 		/* Rellenamos el puntero path */
 		*path = malloc(sizeof(char) * path_size);
 		strncpy(*path, start_get, end_get - start_get);
-		(*path)[path_size] = '\0';
+		(*path)[path_size - 1] = '\0';
 	} else { // Existe un query
 		/* Rellenamos el puntero path */
 		path_size = (query_get - start_get) + 1; // 1 para '\0'
 		*path = malloc(sizeof(char) * path_size);
 		strncpy(*path, start_get, query_get - start_get);
-		(*path)[path_size] = '\0';
+		(*path)[path_size - 1] = '\0';
 
 		/* Rellenamos el puntero query */
 		*query = malloc(sizeof(char) * query_size);
 		strncpy(*query, query_get, end_get - query_get);
-		(*query)[query_size] = '\0';
+		(*query)[query_size - 1] = '\0';
 	}
 
 }
