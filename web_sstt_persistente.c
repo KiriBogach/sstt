@@ -248,48 +248,47 @@ char* make_cookie() {
 }
 
 int php(int fd, int fd_fichero) {
-	if (PHP_ENABLED && IS_PHP) {
-		if (fork() == 0) { 		// Hijo
-			close(fd_fichero);  // El hijo cierra no necesita este fd
-			dup2(fd, 1);		// Salida estandar -> fd del socket
-			if (!PHP_QUERY) {
-				/* Si no hay QUERY para el PHP */
-				execl("/usr/bin/php", "php", PHP_PATH, NULL);
-			} else {
-				/* Hay un query que le pasamos al PHP */
-				PHP_QUERY++; 			// nos saltamos '?'
-				int num_argumentos = 1; // Argumentos totales (separados por '&')
-				char* aux = PHP_QUERY;
-				while (*aux) if (*aux++ == '&') num_argumentos++;
-				int total_argumentos = 3 + num_argumentos; // 3 argumentos fijos
-				char *argumentos[total_argumentos];
-				argumentos[0] = "php"; 					   // Fijo 1
-				argumentos[1] = PHP_PATH;				   // Fijo 2
-				argumentos[total_argumentos - 1] = NULL;   // Fijo 3
-				int argumento_variable = 2; 			   // Empieza por '2'
-				char* linea = strtok(PHP_QUERY, "&");
-				while (linea) {
-					argumentos[argumento_variable++] = linea;
-					linea = strtok(NULL, "&");
-				}
-				execv("/usr/bin/php", argumentos);
+	if (fork() == 0) { 		// Hijo
+		close(fd_fichero);  // El hijo cierra no necesita este fd
+		dup2(fd, 1);		// Salida estandar -> fd del socket
+		if (!PHP_QUERY) {
+			/* Si no hay QUERY para el PHP */
+			execl("/usr/bin/php", "php", PHP_PATH, NULL);
+		} else {
+			/* Hay un query que le pasamos al PHP */
+			PHP_QUERY++; 			// nos saltamos '?'
+			int num_argumentos = 1; // Argumentos totales (separados por '&')
+			char* aux = PHP_QUERY;
+			while (*aux) if (*aux++ == '&') num_argumentos++;
+			int total_argumentos = 3 + num_argumentos; // 3 argumentos fijos
+			char *argumentos[total_argumentos];
+			argumentos[0] = "php"; 					   // Fijo 1
+			argumentos[1] = PHP_PATH;				   // Fijo 2
+			argumentos[total_argumentos - 1] = NULL;   // Fijo 3
+			int argumento_variable = 2; 			   // Empieza por '2'
+			char* linea = strtok(PHP_QUERY, "&");
+			while (linea) {
+				argumentos[argumento_variable++] = linea;
+				linea = strtok(NULL, "&");
 			}
-			/* Esto no debería ejecutarse si PHP está instalado */
-			perror("PHP no instalado");
-			exit(EXIT_FAILURE);
-
-		} else { // Padre
-			/* Esperamos al hijo, resetamos variables globales
-			 * e indicamos que hemos ejecutado PHP */
-			wait(NULL);
-			IS_PHP = 0;
-			PHP_PATH = "";
-			PHP_QUERY= "";
-			return 1;
+			execv("/usr/bin/php", argumentos);
 		}
+		/* Esto no debería ejecutarse si PHP está instalado */
+		perror("PHP no instalado");
+		exit(EXIT_FAILURE);
+
+	} else { // Padre
+		/* Esperamos al hijo, resetamos variables globales
+		 * e indicamos que hemos ejecutado PHP */
+		wait(NULL);
+		IS_PHP = 0;
+		PHP_PATH = "";
+		PHP_QUERY = "";
+		return 1;
 	}
 	return 0; // No hay que ejecutar PHP
 }
+
 
 void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extension) {
 	char respuesta[REQUEST_BUFF_SIZE];
@@ -303,13 +302,17 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	switch (tipo_respuesta) {
 	case OK:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 200 OK\r\n");
+		if (PHP_ENABLED && IS_PHP) {
+			indice += sprintf(respuesta + indice, "\r\n");
+			write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
+			php(fd, fd_fichero);
+			free(cookie);
+			close(fd);
+			exit(EXIT_SUCCESS);
+		}
 		char* hora = date_as_string(0);
 		indice += sprintf(respuesta + indice, "%s", hora);
 		free(hora);
-		if (php(fd, fd_fichero)) {
-			free(cookie);
-			return;
-		}
 		indice += sprintf(respuesta + indice, "Content-Length: %d\r\n", get_fd_size(fd_fichero));
 		indice += sprintf(respuesta + indice, "Content-Type: %s\r\n", extension);
 		if (COOKIES_ENABLED) indice += sprintf(respuesta + indice, "%s", cookie);
@@ -330,7 +333,7 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	//	correspondiente, y el envio del fichero se hace en blockes de un máximo de  8kB
 	//
 
-	debug(LOG, "Enviamos", respuesta, fd);
+	debug(LOG, "Enviamos un mensaje tipo", respuesta, fd);
 
 	write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
 	if (tipo_respuesta == OK) {
@@ -349,13 +352,13 @@ int process_web_check(int fd) {
 	tv.tv_usec = 0;
 	FD_ZERO(&readfds);
 	FD_SET(fd, &readfds);
-	// En este ejemplo, deber�amos asignarle el valor sockfd + 1 ,
-	//puesto que es seguro que tendr� un valor mayor que la entrada est�ndar (0).
+	// En este ejemplo, deberiamos asignarle el valor sockfd + 1 ,
+	// puesto que es seguro que tendraun valor mayor que la entrada estandar (0).
 	select(fd + 1, &readfds, NULL, NULL, &tv);
 	if (FD_ISSET(fd, &readfds))
 		return 1; //hay cosas x leer
 	else
-		return 0; //expir� el timerout
+		return 0; //expira el timerout
 }
 
 void process_web_request(int fd) {
@@ -409,9 +412,8 @@ void process_web_request(int fd) {
 		peticion = remove_from_string(buffer, "\r\n");
 		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
 		if (!primera_linea_end || peticion_mal_formada(buffer)) {
-			printf("buffer:%s\n", buffer);
 			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-			free(peticion); close(fd); exit(1);
+			free(peticion); close(fd); exit(EXIT_FAILURE);
 		}
 
 		char primera_linea[primera_linea_end - peticion];
@@ -424,7 +426,7 @@ void process_web_request(int fd) {
 		if (!((is_post != NULL) ^ (is_get != NULL))) { // XOR
 			/* Posibilidad de existencia de 'POST' o 'GET' en la primera línea */
 			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-			free(peticion); close(fd); exit(1);
+			free(peticion); close(fd); exit(EXIT_FAILURE);
 		}
 
 		if (is_post) {
@@ -457,7 +459,7 @@ void process_web_request(int fd) {
 
 		free(peticion); free(path); free(query); free(extension); close(fd_fichero);
 	}
-	close(fd); exit(1);
+	close(fd); exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
