@@ -27,6 +27,7 @@
 #define COOKIE_BUFF_SIZE	128  // 128 caracteres
 #define EXTENSIONS_ENABLED	1 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define PERSISTENT_ENABLED 	1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
 #define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 	3
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
@@ -362,7 +363,7 @@ int process_web_check(int fd) {
 }
 
 void process_web_request(int fd) {
-	while (1) {
+	while (PERSISTENT_ENABLED) {
 		debug(LOG, "Request", "Ha llegado una peticion", fd);
 
 		//
@@ -416,8 +417,9 @@ void process_web_request(int fd) {
 			free(peticion); close(fd); exit(EXIT_FAILURE);
 		}
 
-		char primera_linea[primera_linea_end - peticion];
+		char primera_linea[primera_linea_end - peticion + 1];
 		strncpy(primera_linea, peticion, primera_linea_end - peticion);
+		primera_linea[primera_linea_end - peticion] = '\0';
 		int fd_fichero;
 
 		char* is_post = strstr(primera_linea, "POST");
@@ -456,8 +458,8 @@ void process_web_request(int fd) {
 			}
 			enviar_respuesta(fd, tipo_respuesta, fd_fichero, extension);
 		}
-
-		free(peticion); free(path); free(query); free(extension); close(fd_fichero);
+		//free(path); free(query); free(extension)
+		free(peticion); close(fd_fichero);
 	}
 	close(fd); exit(EXIT_FAILURE);
 }
