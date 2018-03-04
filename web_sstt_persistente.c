@@ -346,24 +346,25 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	}
 }
 
-int process_web_check(int fd) {
+// https://linux.die.net/man/3/fd_set
+int fd_done_or_timeout(int fd) {
+	/* 15 segundos de timeout si el fd ya no tiene más que leer */
 	struct timeval tv;
-	fd_set readfds;
-	tv.tv_sec = 20;
+	fd_set rfds;
+	tv.tv_sec = 15; 
 	tv.tv_usec = 0;
-	FD_ZERO(&readfds);
-	FD_SET(fd, &readfds);
-	// En este ejemplo, deberiamos asignarle el valor sockfd + 1 ,
-	// puesto que es seguro que tendraun valor mayor que la entrada estandar (0).
-	select(fd + 1, &readfds, NULL, NULL, &tv);
-	if (FD_ISSET(fd, &readfds))
-		return 1; //hay cosas x leer
-	else
-		return 0; //expira el timerout
+	FD_ZERO(&rfds);
+	FD_SET(fd, &rfds);
+	if (select(fd + 1, &rfds, NULL, NULL, &tv) < 0) {
+		perror("select()");
+		exit(EXIT_FAILURE);
+	}
+	/* Se comprueba si hay cosas por leer aún */
+	return (FD_ISSET(fd, &rfds)); 
 }
 
 void process_web_request(int fd) {
-	while (PERSISTENT_ENABLED) {
+	while (PERSISTENT_ENABLED && fd_done_or_timeout(fd)) {
 		debug(LOG, "Request", "Ha llegado una peticion", fd);
 
 		//
