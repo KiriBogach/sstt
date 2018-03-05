@@ -20,6 +20,7 @@
 #define NOFICHERO			0
 #define NOEXTENSION			""
 #define OK					200
+#define BAD_REQUEST			400
 #define PROHIBIDO			403
 #define NOENCONTRADO		404
 #define REQUEST_BUFF_SIZE	8192 // 8KiB
@@ -327,6 +328,8 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 		break;
 	}
 
+	// TODO: mal formada
+
 	free(cookie);
 
 	//
@@ -414,7 +417,7 @@ void process_web_request(int fd) {
 		peticion = remove_from_string(buffer, "\r\n");
 		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
 		if (!primera_linea_end || peticion_mal_formada(buffer)) {
-			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
+			enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
 			free(peticion); close(fd); exit(EXIT_FAILURE);
 		}
 
@@ -428,7 +431,7 @@ void process_web_request(int fd) {
 
 		if (!((is_post != NULL) ^ (is_get != NULL))) { // XOR
 			/* Posibilidad de existencia de 'POST' o 'GET' en la primera línea */
-			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
+			enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
 			free(peticion); close(fd); exit(EXIT_FAILURE);
 		}
 
