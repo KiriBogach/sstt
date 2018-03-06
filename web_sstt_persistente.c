@@ -323,6 +323,9 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	case PROHIBIDO:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n");
 		break;
+	case BAD_REQUEST:
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n");
+		break;
 	case NOENCONTRADO:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 404 Not Found\r\n");
 		break;
