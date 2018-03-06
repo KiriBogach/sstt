@@ -321,13 +321,13 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 		indice += sprintf(respuesta + indice, "\r\n");
 		break;
 	case PROHIBIDO:
-		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n");
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n\r\n");
 		break;
 	case BAD_REQUEST:
-		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n");
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n\r\n");
 		break;
 	case NOENCONTRADO:
-		indice = sprintf(respuesta, "%s", "HTTP/1.1 404 Not Found\r\n");
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 404 Not Found\r\n\r\n");
 		break;
 	}
 
@@ -343,6 +343,7 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	debug(LOG, "Enviamos un mensaje tipo", respuesta, fd);
 
 	write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
+
 	if (tipo_respuesta == OK) {
 		/* Leemos el fichero y lo escribimos en nuestro socket */
 		int bytes_leidos;
