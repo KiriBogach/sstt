@@ -357,7 +357,7 @@ int fd_done_or_timeout(int fd) {
 	/* 15 segundos de timeout si el fd ya no tiene más que leer */
 	struct timeval tv;
 	fd_set rfds;
-	tv.tv_sec = 3;
+	tv.tv_sec = 1;
 	tv.tv_usec = 0;
 	FD_ZERO(&rfds);
 	FD_SET(fd, &rfds);
@@ -422,8 +422,6 @@ void process_web_request(int fd) {
 			|| (buffer[0] == 'P' && buffer[1] == 'O' && buffer[2] == 'S' && buffer[3] == 'T' && buffer[4] == ' ' && buffer[5] == '/'))
 			bien_formado = 1;
 
-		printf("%d\n", bien_formado);
-
 		peticion = remove_from_string(buffer, "\r\n");
 		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
 		if (!bien_formado || !primera_linea_end || peticion_mal_formada(buffer)) {
@@ -449,8 +447,7 @@ void process_web_request(int fd) {
 			/* Tratamos el caso de un POST */
 			fd_fichero = parse_post(peticion);
 			if (fd_fichero < 0) {
-				enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
-				free(peticion); close(fd); exit(EXIT_FAILURE);
+				enviar_respuesta(fd, NOENCONTRADO, NOFICHERO, NOEXTENSION);
 			} else {
 				enviar_respuesta(fd, OK, fd_fichero, "text/html");
 			}
