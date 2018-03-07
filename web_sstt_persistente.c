@@ -320,11 +320,11 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 		if (COOKIES_ENABLED) indice += sprintf(respuesta + indice, "%s", cookie);
 		indice += sprintf(respuesta + indice, "\r\n");
 		break;
-	case PROHIBIDO:
-		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n\r\n");
-		break;
 	case BAD_REQUEST:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n\r\n");
+		break;
+	case PROHIBIDO:
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n\r\n");
 		break;
 	case NOENCONTRADO:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 404 Not Found\r\n\r\n");
@@ -419,8 +419,8 @@ void process_web_request(int fd) {
 		//
 
 		int bien_formado = 0;
-		if ((buffer[0] == 'G' && buffer[1] == 'E' && buffer[2] == 'T' && buffer[3] == ' ' && buffer[4] == '/') 
-			|| (buffer[0] == 'P' && buffer[1] == 'O' && buffer[2] == 'S' && buffer[3] == 'T' && buffer[4] == ' ' && buffer[5] == '/'))
+		if ((buffer[0] == 'G' && buffer[1] == 'E' && buffer[2] == 'T' && buffer[3] == ' ' && buffer[4] == '/')
+		        || (buffer[0] == 'P' && buffer[1] == 'O' && buffer[2] == 'S' && buffer[3] == 'T' && buffer[4] == ' ' && buffer[5] == '/'))
 			bien_formado = 1;
 
 		peticion = remove_from_string(buffer, "\r\n");
