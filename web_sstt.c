@@ -30,7 +30,8 @@
 #define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
 #define PERSISTENT_ENABLED 	1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define PERSISTENT_TIME  	60	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 	3
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE	"index.html"
@@ -105,11 +106,11 @@ int parse_post(char *post) {
 	if (peticion == NULL) return -1;
 	int fd_form = open("accion_form.html", O_RDWR | O_CREAT | O_TRUNC, 0600);
 	char* mensaje;
-	if (strcmp(peticion, MY_EMAIL) == 0) {
-		mensaje = "<html><body><h1>El login se ha hecho con exito</h1></body></html>";
-	} else {
-		mensaje = "<html><body><h1>Error en el login</h1></body></html>";
-	}
+	if (peticion[strlen(MY_EMAIL)]) {
+		peticion[strlen(MY_EMAIL)] = '\0';
+		if (strcmp(peticion, MY_EMAIL) == 0) mensaje = "<html><body><h1>El login se ha hecho con exito</h1></body></html>";
+		else mensaje = "<html><body><h1>Error en el login</h1></body></html>";
+	} else mensaje = "<html><body><h1>Error en el login</h1></body></html>";
 	write(fd_form, mensaje, strlen(mensaje));
 	lseek(fd_form, 0, SEEK_SET);  // Rewind del fd para su futura lectura desde el principio
 	return fd_form;
@@ -171,7 +172,7 @@ int peticion_mal_formada(char* buffer) {
 	char* fin_primera_linea = strstr(buffer, "\r\n");
 	char* linea = strtok(fin_primera_linea, "\r\n");
 	while (linea) {
-		printf("<<<%s\n", linea);
+		//printf("<<<%s\n", linea);
 		/* Se comprueba 'Cabecera: Datos \r\n' teniendo en cuenta el posible POST */
 		if (!strchr(linea, ':') && !strstr(linea, "email"))  {
 			/* !strstr(linea, "email") para el caso de la última línea del post */
@@ -371,7 +372,7 @@ int fd_done_or_timeout(int fd) {
 	/* 15 segundos de timeout si el fd ya no tiene más que leer */
 	struct timeval tv;
 	fd_set rfds;
-	tv.tv_sec = 1;
+	tv.tv_sec = PERSISTENT_TIME;
 	tv.tv_usec = 0;
 	FD_ZERO(&rfds);
 	FD_SET(fd, &rfds);
@@ -420,6 +421,8 @@ void process_web_request(int fd) {
 
 		buffer[bytes_leidos] = '\0';
 
+		printf("buffer:%s\n", buffer);
+
 		/* Gestión de cookies */
 		if (COOKIES_ENABLED) {
 			char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
@@ -438,6 +441,7 @@ void process_web_request(int fd) {
 
 		peticion = remove_from_string(buffer, "\r\n");
 		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
+		if (primera_linea_end[-1] != ' ' || primera_linea_end[-2] == ' ') bien_formado = 0;
 		if (!bien_formado || !primera_linea_end || peticion_mal_formada(buffer)) {
 			enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
 			free(peticion); continue;
@@ -461,7 +465,7 @@ void process_web_request(int fd) {
 			/* Tratamos el caso de un POST */
 			fd_fichero = parse_post(peticion);
 			if (fd_fichero < 0) {
-				enviar_respuesta(fd, NOENCONTRADO, NOFICHERO, NOEXTENSION);
+				enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
 			} else {
 				enviar_respuesta(fd, OK, fd_fichero, "text/html");
 			}
