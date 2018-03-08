@@ -101,18 +101,19 @@ char* date_as_string(int incremento_minutos) {
 	return strdup(buffer);
 }
 
+
 int parse_post(char *post) {
 	char* peticion = strstr(post, "email=") + 6; // +6 por quedarnos al final de 'email='
-	if (peticion == NULL) return -1;
-	int fd_form = open("accion_form.html", O_RDWR | O_CREAT | O_TRUNC, 0600);
-	char* mensaje;
-	if (peticion[strlen(MY_EMAIL)]) {
-		peticion[strlen(MY_EMAIL)] = '\0';
-		if (strcmp(peticion, MY_EMAIL) == 0) mensaje = "<html><body><h1>El login se ha hecho con exito</h1></body></html>";
-		else mensaje = "<html><body><h1>Error en el login</h1></body></html>";
-	} else mensaje = "<html><body><h1>Error en el login</h1></body></html>";
-	write(fd_form, mensaje, strlen(mensaje));
-	lseek(fd_form, 0, SEEK_SET);  // Rewind del fd para su futura lectura desde el principio
+	int index = 0;
+	while (peticion[index] && MY_EMAIL[index] && peticion[index] == MY_EMAIL[index]) {
+		index++;
+	}
+	int fd_form;
+	if (index == strlen(MY_EMAIL) && !peticion[index]) {
+	 	fd_form = open("accion_form_ok.html", O_RDONLY);
+	} else {
+		fd_form = open("accion_form_ko.html", O_RDONLY);
+	}
 	return fd_form;
 }
 
@@ -211,7 +212,9 @@ char* remove_from_string(char* string, char* to_remove) {
 		if (!strchr(to_remove, string[i]))
 			buffer[index++] = string[i];
 	}
-	return strdup(buffer);
+	char* retorno = strdup(buffer);
+	retorno[index] = '\0';
+	return retorno;
 }
 
 int get_fd_size(int fd) {
