@@ -421,8 +421,6 @@ void process_web_request(int fd) {
 
 		buffer[bytes_leidos] = '\0';
 
-		printf("buffer:%s\n", buffer);
-
 		/* Gestión de cookies */
 		if (COOKIES_ENABLED) {
 			char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
