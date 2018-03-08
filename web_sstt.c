@@ -20,14 +20,17 @@
 #define NOFICHERO			0
 #define NOEXTENSION			""
 #define OK					200
+#define BAD_REQUEST			400
 #define PROHIBIDO			403
 #define NOENCONTRADO		404
+#define TOO_MANY_REQUESTS	429
 #define REQUEST_BUFF_SIZE	8192 // 8KiB
 #define DATE_BUFF_SIZE		128  // 128 caracteres
 #define COOKIE_BUFF_SIZE	128  // 128 caracteres
 #define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define PERSISTENT_ENABLED 	1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 	3
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE	"index.html"
@@ -168,6 +171,7 @@ int peticion_mal_formada(char* buffer) {
 	char* fin_primera_linea = strstr(buffer, "\r\n");
 	char* linea = strtok(fin_primera_linea, "\r\n");
 	while (linea) {
+		printf("<<<%s\n", linea);
 		/* Se comprueba 'Cabecera: Datos \r\n' teniendo en cuenta el posible POST */
 		if (!strchr(linea, ':') && !strstr(linea, "email"))  {
 			/* !strstr(linea, "email") para el caso de la última línea del post */
@@ -248,47 +252,47 @@ char* make_cookie() {
 }
 
 int php(int fd, int fd_fichero) {
-	if (PHP_ENABLED && IS_PHP) {
-		if (fork() == 0) { 		// Hijo
-			close(fd_fichero);  // El hijo cierra no necesita este fd
-			dup2(fd, 1);		// Salida estandar -> fd del socket
-			if (!PHP_QUERY) {
-				/* Si no hay QUERY para el PHP */
-				execl("/usr/bin/php", "php", PHP_PATH, NULL);
-			} else {
-				/* Hay un query que le pasamos al PHP */
-				PHP_QUERY++; 			// nos saltamos '?'
-				int num_argumentos = 1; // Argumentos totales (separados por '&')
-				char* aux = PHP_QUERY;
-				while (*aux) if (*aux++ == '&') num_argumentos++;
-				int total_argumentos = 3 + num_argumentos; // 3 argumentos fijos
-				char *argumentos[total_argumentos];
-				argumentos[0] = "php"; 					   // Fijo 1
-				argumentos[1] = PHP_PATH;				   // Fijo 2
-				argumentos[total_argumentos - 1] = NULL;   // Fijo 3
-				int argumento_variable = 2; 			   // Empieza por '2'
-				char* linea = strtok(PHP_QUERY, "&");
-				while (linea) {
-					argumentos[argumento_variable++] = linea;
-					linea = strtok(NULL, "&");
-				}
-				execv("/usr/bin/php", argumentos);
+	if (fork() == 0) { 		// Hijo
+		close(fd_fichero);  // El hijo cierra no necesita este fd
+		dup2(fd, 1);		// Salida estandar -> fd del socket
+		if (!PHP_QUERY) {
+			/* Si no hay QUERY para el PHP */
+			execl("/usr/bin/php", "php", PHP_PATH, NULL);
+		} else {
+			/* Hay un query que le pasamos al PHP */
+			PHP_QUERY++; 			// nos saltamos '?'
+			int num_argumentos = 1; // Argumentos totales (separados por '&')
+			char* aux = PHP_QUERY;
+			while (*aux) if (*aux++ == '&') num_argumentos++;
+			int total_argumentos = 3 + num_argumentos; // 3 argumentos fijos
+			char *argumentos[total_argumentos];
+			argumentos[0] = "php"; 					   // Fijo 1
+			argumentos[1] = PHP_PATH;				   // Fijo 2
+			argumentos[total_argumentos - 1] = NULL;   // Fijo 3
+			int argumento_variable = 2; 			   // Empieza por '2'
+			char* linea = strtok(PHP_QUERY, "&");
+			while (linea) {
+				argumentos[argumento_variable++] = linea;
+				linea = strtok(NULL, "&");
 			}
-			/* Esto no debería ejecutarse si PHP está instalado */
-			perror("PHP no instalado");
-			exit(EXIT_FAILURE);
-
-		} else { // Padre
-			/* Esperamos al hijo, resetamos variables globales
-			 * e indicamos que hemos ejecutado PHP */
-			wait(NULL);
-			IS_PHP = 0;
-			PHP_PATH = "";
-			return 1;
+			execv("/usr/bin/php", argumentos);
 		}
+		/* Esto no debería ejecutarse si PHP está instalado */
+		perror("PHP no instalado");
+		exit(EXIT_FAILURE);
+
+	} else { // Padre
+		/* Esperamos al hijo, resetamos variables globales
+		 * e indicamos que hemos ejecutado PHP */
+		wait(NULL);
+		IS_PHP = 0;
+		PHP_PATH = "";
+		PHP_QUERY = "";
+		return 1;
 	}
 	return 0; // No hay que ejecutar PHP
 }
+
 
 void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extension) {
 	char respuesta[REQUEST_BUFF_SIZE];
@@ -296,31 +300,52 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 
 	char* cookie = make_cookie();
 	if (COOKIES_ENABLED && cookie == NULL) {
-		tipo_respuesta = PROHIBIDO;
+		tipo_respuesta = TOO_MANY_REQUESTS;
 	}
 
 	switch (tipo_respuesta) {
 	case OK:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 200 OK\r\n");
-		char* hora = date_as_string(0);
-		indice += sprintf(respuesta + indice, "%s", hora);
-		free(hora);
-		if (php(fd, fd_fichero)) {
+		if (PHP_ENABLED && IS_PHP) {
+			indice += sprintf(respuesta + indice, "\r\n");
+			write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
+			php(fd, fd_fichero);
 			free(cookie);
-			return;
+			close(fd);
+			exit(EXIT_SUCCESS);
 		}
-		indice += sprintf(respuesta + indice, "Content-Length: %d\r\n", get_fd_size(fd_fichero));
-		indice += sprintf(respuesta + indice, "Content-Type: %s\r\n", extension);
-		if (COOKIES_ENABLED) indice += sprintf(respuesta + indice, "%s", cookie);
-		indice += sprintf(respuesta + indice, "\r\n");
+		break;
+	case BAD_REQUEST:
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n");
+		fd_fichero = open("400.html", O_RDONLY);
+		extension = "text/html";
 		break;
 	case PROHIBIDO:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 403 Forbidden\r\n");
+		fd_fichero = open("403.html", O_RDONLY);
+		extension = "text/html";
 		break;
 	case NOENCONTRADO:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 404 Not Found\r\n");
+		fd_fichero = open("404.html", O_RDONLY);
+		extension = "text/html";
+		break;
+	case TOO_MANY_REQUESTS:
+		indice = sprintf(respuesta, "%s", "HTTP/1.1 429 Too Many Requests\r\n");
+		fd_fichero = open("429.html", O_RDONLY);
+		extension = "text/html";
 		break;
 	}
+
+	char* hora = date_as_string(0);
+	indice += sprintf(respuesta + indice, "%s", hora);
+	free(hora);
+	indice += sprintf(respuesta + indice, "Content-Length: %d\r\n", get_fd_size(fd_fichero));
+	indice += sprintf(respuesta + indice, "Content-Type: %s\r\n", extension);
+	if (COOKIES_ENABLED && cookie != NULL) indice += sprintf(respuesta + indice, "%s", cookie);
+	indice += sprintf(respuesta + indice, "\r\n");
+
+	// TODO: mal formada
 
 	free(cookie);
 
@@ -329,111 +354,140 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	//	correspondiente, y el envio del fichero se hace en blockes de un máximo de  8kB
 	//
 
+	debug(LOG, "Enviamos un mensaje tipo", respuesta, fd);
+
 	write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
-	if (tipo_respuesta == OK) {
-		/* Leemos el fichero y lo escribimos en nuestro socket */
-		char buffer_fichero[REQUEST_BUFF_SIZE];
-		int bytes_leidos;
-		while ((bytes_leidos = read(fd_fichero, &buffer_fichero, REQUEST_BUFF_SIZE)) > 0) {
-			write(fd, buffer_fichero, bytes_leidos);
-		}
+
+	/* Leemos el fichero y lo escribimos en nuestro socket */
+	int bytes_leidos;
+	while ((bytes_leidos = read(fd_fichero, &respuesta, REQUEST_BUFF_SIZE)) > 0) {
+		write(fd, respuesta, bytes_leidos);
 	}
+	if (tipo_respuesta != OK) close(fd_fichero);
+}
+
+// https://linux.die.net/man/3/fd_set
+int fd_done_or_timeout(int fd) {
+	/* 15 segundos de timeout si el fd ya no tiene más que leer */
+	struct timeval tv;
+	fd_set rfds;
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+	FD_ZERO(&rfds);
+	FD_SET(fd, &rfds);
+	if (select(fd + 1, &rfds, NULL, NULL, &tv) < 0) {
+		perror("select()");
+		exit(EXIT_FAILURE);
+	}
+	/* Se comprueba si hay cosas por leer aún */
+	return (FD_ISSET(fd, &rfds));
 }
 
 void process_web_request(int fd) {
-	debug(LOG, "Request", "Ha llegado una peticion", fd);
+	while (PERSISTENT_ENABLED && fd_done_or_timeout(fd)) {
+		debug(LOG, "Request", "Ha llegado una peticion", fd);
 
-	//
-	// Definir buffer y variables necesarias para leer las peticiones
-	//
+		//
+		// Definir buffer y variables necesarias para leer las peticiones
+		//
 
-	char buffer[REQUEST_BUFF_SIZE];		// El buffer para la lectura del socket
-	char* peticion;						// La lectura del buffer sin '\r' ni '\n'
-	char* path;							// La ruta del GET
-	char* query;						// El posible query, e.g. ?nombre=Kiri&pass=123
-	char* extension;					// La extensión del fichero del path
+		char buffer[REQUEST_BUFF_SIZE];		// El buffer para la lectura del socket
+		char* peticion;						// La lectura del buffer sin '\r' ni '\n'
+		char* path;							// La ruta del GET
+		char* query;						// El posible query, e.g. ?nombre=Kiri&pass=123
+		char* extension;					// La extensión del fichero del path
 
-	//
-	// Leer la petición HTTP
-	//
+		//
+		// Leer la petición HTTP
+		//
 
-	int bytes_leidos = read(fd, buffer, REQUEST_BUFF_SIZE);
+		int bytes_leidos = read(fd, buffer, REQUEST_BUFF_SIZE);
 
-	//
-	// Comprobación de errores de lectura
-	//
+		//
+		// Comprobación de errores de lectura
+		//
 
-	if (bytes_leidos < 0) { // Si es -1
-		perror("read");
-		exit(EXIT_FAILURE);
-	}
-
-	debug(LOG, "Mensaje", buffer, fd);
-	//
-	// Si la lectura tiene datos válidos terminar el buffer con un \0
-	//
-
-	buffer[bytes_leidos] = '\0';
-
-	/* Gestión de cookies */
-	char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
-	char* cookie_string = strstr(buffer, cookie_loc);
-	if (cookie_string) cookie_value = atoi(cookie_string + strlen(cookie_loc));
-
-	//
-	// Se eliminan los caracteres de retorno de carro y nueva linea
-	//
-
-	peticion = remove_from_string(buffer, "\r\n");
-	char* primera_linea_end = strstr(peticion, "HTTP/1.1");
-	if (!primera_linea_end || peticion_mal_formada(buffer)) {
-		enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-		free(peticion); close(fd); exit(1);
-	}
-
-	char primera_linea[primera_linea_end - peticion];
-	strncpy(primera_linea, peticion, primera_linea_end - peticion);
-	int fd_fichero;
-
-	char* is_post = strstr(primera_linea, "POST");
-	char* is_get  = strstr(primera_linea, "GET");
-
-	if (!((is_post != NULL) ^ (is_get != NULL))) { // XOR
-		/* Posibilidad de existencia de 'POST' o 'GET' en la primera línea */
-		enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-		free(peticion); close(fd); exit(1);
-	}
-
-	if (is_post) {
-		/* Tratamos el caso de un POST */
-		fd_fichero = parse_post(peticion);
-		if (fd_fichero < 0) {
-			enviar_respuesta(fd, PROHIBIDO, NOFICHERO, NOEXTENSION);
-		} else {
-			enviar_respuesta(fd, OK, fd_fichero, "text/html");
+		if (bytes_leidos < 0) { // Si es -1
+			perror("read");
+			close(fd);
+			exit(EXIT_FAILURE);
 		}
-	} else if (is_get) {
-		/* Tratamos el caso de un GET */
-		parse_get(primera_linea, &path, &query);
-		PHP_PATH = path;
-		PHP_QUERY = query;
-		extension = analyze_extension(path);
-		fd_fichero = open(path, O_RDONLY);
-		int tipo_respuesta;
 
-		/* Ruta no válida o extensión no válida */
-		if (forbidden_paths(path) || !extension) {
-			tipo_respuesta = PROHIBIDO;
-		} else if (fd_fichero < 0) {
-			tipo_respuesta = NOENCONTRADO; // No se ha encontrado/abierto el fd
-		} else {
-			tipo_respuesta = OK; // Si ninguno de los cacos anteriores se da, entonces OK
+		debug(LOG, "Mensaje", buffer, fd);
+		//
+		// Si la lectura tiene datos válidos terminar el buffer con un \0
+		//
+
+		buffer[bytes_leidos] = '\0';
+
+		/* Gestión de cookies */
+		if (COOKIES_ENABLED) {
+			char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
+			char* cookie_string = strstr(buffer, cookie_loc);
+			if (cookie_string) cookie_value = atoi(cookie_string + strlen(cookie_loc));
 		}
-		enviar_respuesta(fd, tipo_respuesta, fd_fichero, extension);
-	}
 
-	free(peticion); free(path); free(query); free(extension);
-	close(fd_fichero); close(fd); exit(1);
+		//
+		// Se eliminan los caracteres de retorno de carro y nueva linea
+		//
+
+		int bien_formado = 0;
+		if ((buffer[0] == 'G' && buffer[1] == 'E' && buffer[2] == 'T' && buffer[3] == ' ' && buffer[4] == '/')
+		        || (buffer[0] == 'P' && buffer[1] == 'O' && buffer[2] == 'S' && buffer[3] == 'T' && buffer[4] == ' ' && buffer[5] == '/'))
+			bien_formado = 1;
+
+		peticion = remove_from_string(buffer, "\r\n");
+		char* primera_linea_end = strstr(peticion, "HTTP/1.1");
+		if (!bien_formado || !primera_linea_end || peticion_mal_formada(buffer)) {
+			enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
+			free(peticion); continue;
+		}
+
+		char primera_linea[primera_linea_end - peticion + 1];
+		strncpy(primera_linea, peticion, primera_linea_end - peticion);
+		primera_linea[primera_linea_end - peticion] = '\0';
+		int fd_fichero;
+
+		char* is_post = strstr(primera_linea, "POST");
+		char* is_get  = strstr(primera_linea, "GET");
+
+		if (!((is_post != NULL) ^ (is_get != NULL))) { // XOR
+			/* Posibilidad de existencia de 'POST' o 'GET' en la primera línea */
+			enviar_respuesta(fd, BAD_REQUEST, NOFICHERO, NOEXTENSION);
+			free(peticion); continue;
+		}
+
+		if (is_post) {
+			/* Tratamos el caso de un POST */
+			fd_fichero = parse_post(peticion);
+			if (fd_fichero < 0) {
+				enviar_respuesta(fd, NOENCONTRADO, NOFICHERO, NOEXTENSION);
+			} else {
+				enviar_respuesta(fd, OK, fd_fichero, "text/html");
+			}
+		} else if (is_get) {
+			/* Tratamos el caso de un GET */
+			parse_get(primera_linea, &path, &query);
+			PHP_PATH = path;
+			PHP_QUERY = query;
+			extension = analyze_extension(path);
+			fd_fichero = open(path, O_RDONLY);
+			int tipo_respuesta;
+
+			/* Ruta no válida o extensión no válida */
+			if (forbidden_paths(path) || !extension) {
+				tipo_respuesta = PROHIBIDO;
+			} else if (fd_fichero < 0) {
+				tipo_respuesta = NOENCONTRADO; // No se ha encontrado/abierto el fd
+			} else {
+				tipo_respuesta = OK; // Si ninguno de los cacos anteriores se da, entonces OK
+			}
+			enviar_respuesta(fd, tipo_respuesta, fd_fichero, extension);
+		}
+		//free(path); free(query); free(extension)
+		free(peticion); close(fd_fichero);
+	}
+	close(fd); exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
