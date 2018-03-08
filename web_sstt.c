@@ -30,9 +30,9 @@
 #define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
 #define PERSISTENT_ENABLED 	1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_TIME  	60	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define COOKIES_ENABLED 	0	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
-#define MAX_COOKIE_REQUEST 	3
+#define PERSISTENT_TIME  	1	 // Tiempo que dura la conexión persistente sin leer nada.
+#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define MAX_COOKIE_REQUEST 	10
 #define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE	"index.html"
 #define MY_EMAIL			"kyryl.bogachy%40um.es"
