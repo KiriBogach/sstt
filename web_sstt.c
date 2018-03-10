@@ -212,9 +212,7 @@ char* remove_from_string(char* string, char* to_remove) {
 		if (!strchr(to_remove, string[i]))
 			buffer[index++] = string[i];
 	}
-	char* retorno = strdup(buffer);
-	retorno[index] = '\0';
-	return retorno;
+	return strdup(buffer);
 }
 
 int get_fd_size(int fd) {
@@ -244,9 +242,9 @@ char* make_cookie() {
 	char cookie[COOKIE_BUFF_SIZE];
 	char* timeout = date_as_string(COOKIE_TIMEOUT);
 	if (cookie_value < 0) { // cookie_value incial (-1)
-		sprintf(cookie, "Set-Cookie: cookie_counter=1; expires=%s", timeout);
+		sprintf(cookie, "Set-Cookie: cookie_counter=1; Path=/; expires=%s", timeout);
 	} else if (cookie_value < MAX_COOKIE_REQUEST) {
-		sprintf(cookie, "Set-Cookie: cookie_counter=%d; expires=%s", ++cookie_value, timeout);
+		sprintf(cookie, "Set-Cookie: cookie_counter=%d; Path=/; expires=%s", ++cookie_value, timeout);
 	} else {
 		free(timeout);
 		return NULL;
@@ -428,7 +426,7 @@ void process_web_request(int fd) {
 		if (COOKIES_ENABLED) {
 			char* cookie_loc = "Cookie: cookie_counter="; // Para buscar la cookie en el request
 			char* cookie_string = strstr(buffer, cookie_loc);
-			if (cookie_string) cookie_value = atoi(cookie_string + strlen(cookie_loc));
+			cookie_value = (cookie_string) ? atoi(cookie_string + strlen(cookie_loc)) : -1;
 		}
 
 		//
