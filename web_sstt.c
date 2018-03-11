@@ -110,7 +110,7 @@ int parse_post(char *post) {
 	}
 	int fd_form;
 	if (index == strlen(MY_EMAIL) && !peticion[index]) {
-	 	fd_form = open("accion_form_ok.html", O_RDONLY);
+		fd_form = open("accion_form_ok.html", O_RDONLY);
 	} else {
 		fd_form = open("accion_form_ko.html", O_RDONLY);
 	}
