@@ -13,30 +13,29 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 
-#define VERSION							24
-#define BUFSIZE							8096
-#define ERROR							42
-#define LOG								44
-#define NOFICHERO						0
-#define NOEXTENSION						""
-#define OK								200
-#define BAD_REQUEST						400
-#define PROHIBIDO						403
-#define NOENCONTRADO					404
-#define UNSUPPORTED						415
-#define TOO_MANY_REQUESTS				429
-#define REQUEST_BUFF_SIZE				8192 // 8KiB
-#define DATE_BUFF_SIZE					128  // 128 caracteres
-#define COOKIE_BUFF_SIZE				128  // 128 caracteres
-#define EXTENSIONS_ENABLED				0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
-#define PHP_ENABLED 					1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_ENABLED 				1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_TIME  				1	 // Tiempo que dura la conexión persistente sin leer nada.
-#define COOKIES_ENABLED 				1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
-#define MAX_COOKIE_REQUEST 				10
-#define COOKIE_TIMEOUT	 				1	 // 10 minutos como indica en enunciado	
-#define DEFAULT_HTML_FILE				"index.html"
-#define MY_EMAIL						"kyryl.bogachy%40um.es"
+#define VERSION				24
+#define BUFSIZE				8096
+#define ERROR				42
+#define LOG					44
+#define NOFICHERO			0
+#define NOEXTENSION			""
+#define OK					200
+#define BAD_REQUEST			400
+#define PROHIBIDO			403
+#define NOENCONTRADO		404
+#define TOO_MANY_REQUESTS	429
+#define REQUEST_BUFF_SIZE	8192 // 8KiB
+#define DATE_BUFF_SIZE		128  // 128 caracteres
+#define COOKIE_BUFF_SIZE	128  // 128 caracteres
+#define EXTENSIONS_ENABLED	0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
+#define PHP_ENABLED 		1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define PERSISTENT_ENABLED 	1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define PERSISTENT_TIME  	1	 // Tiempo que dura la conexión persistente sin leer nada.
+#define COOKIES_ENABLED 	1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define MAX_COOKIE_REQUEST 	10
+#define COOKIE_TIMEOUT	 	1	 // 10 minutos como indica en enunciado	
+#define DEFAULT_HTML_FILE	"index.html"
+#define MY_EMAIL			"kyryl.bogachy%40um.es"
 
 /* Variables globales para la gestión de código en PHP */
 int IS_PHP = 0;
@@ -333,11 +332,6 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 		fd_fichero = open("404.html", O_RDONLY);
 		extension = "text/html";
 		break;
-	case UNSUPPORTED:
-		indice = sprintf(respuesta, "%s", "HTTP/1.1 415 Unsupported Media Type\r\n");
-		fd_fichero = open("415.html", O_RDONLY);
-		extension = "text/html";
-		break;
 	case TOO_MANY_REQUESTS:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 429 Too Many Requests\r\n");
 		fd_fichero = open("429.html", O_RDONLY);
@@ -408,22 +402,14 @@ void process_web_request(int fd) {
 		//
 		// Leer la petición HTTP
 		//
-		
-		int bytes_totales = read(fd, buffer, REQUEST_BUFF_SIZE);
-		while (fd_has_something_to_read(fd)) {
-			printf("bytesleidos:%d\n", bytes_totales);
-			printf("buffer:%s\n", buffer);
-			bytes_totales += read(fd, buffer + bytes_totales, REQUEST_BUFF_SIZE - bytes_totales);
-			printf("bytesleidos:%d\n", bytes_totales);
-			printf("buffer:%s\n", buffer);
-		}
-		
+
+		int bytes_leidos = read(fd, buffer, REQUEST_BUFF_SIZE);
 
 		//
 		// Comprobación de errores de lectura
 		//
 
-		if (bytes_totales < 0) { // Si es -1
+		if (bytes_leidos < 0) { // Si es -1
 			perror("read");
 			close(fd);
 			exit(EXIT_FAILURE);
@@ -434,7 +420,7 @@ void process_web_request(int fd) {
 		// Si la lectura tiene datos válidos terminar el buffer con un \0
 		//
 
-		buffer[bytes_totales] = '\0';
+		buffer[bytes_leidos] = '\0';
 
 		/* Gestión de cookies */
 		if (COOKIES_ENABLED) {
@@ -491,12 +477,11 @@ void process_web_request(int fd) {
 			fd_fichero = open(path, O_RDONLY);
 			int tipo_respuesta;
 
-			if (!extension) {
-				tipo_respuesta = UNSUPPORTED;
-			} else if (fd_fichero < 0) {
-				tipo_respuesta = (errno == EACCES) ? PROHIBIDO : NOENCONTRADO;
-			} else if (forbidden_paths(path)) {
+			/* Ruta no válida o extensión no válida */
+			if (forbidden_paths(path) || !extension) {
 				tipo_respuesta = PROHIBIDO;
+			} else if (fd_fichero < 0) {
+				tipo_respuesta = NOENCONTRADO; // No se ha encontrado/abierto el fd
 			} else {
 				tipo_respuesta = OK; // Si ninguno de los cacos anteriores se da, entonces OK
 			}
