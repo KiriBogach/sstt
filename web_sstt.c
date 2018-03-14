@@ -31,7 +31,7 @@
 #define EXTENSIONS_ENABLED				0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
 #define PHP_ENABLED 					1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
 #define PERSISTENT_ENABLED 				1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_TIME  				1	 // Tiempo que dura la conexión persistente sin leer nada.
+#define PERSISTENT_TIME  				0.2	 // Tiempo que dura la conexión persistente sin leer nada.
 #define COOKIES_ENABLED 				1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
 #define MAX_COOKIE_REQUEST 				10
 #define COOKIE_TIMEOUT	 				1	 // 10 minutos como indica en enunciado	
@@ -122,9 +122,6 @@ void parse_get(char *stream, char **path, char **query) {
 	char* start_get = strchr(stream, ' ') + 2; // Inicio del path (sin '/')
 	char* query_get = strchr(stream, '?');     // Posible query ('?')
 	char* end_get   = strchr(start_get, ' ');  // Fin del path
-
-	/* TODO: mirar si existe en cada directorio un index.html, por ejemplo
-		si entro en /otrapagina/ que se abra el index.html de ahí */
 
 	int path_size  = (end_get - start_get) + 1; // 1 para '\0'
 	int query_size = (end_get - query_get) + 1; // 1 para '\0'
@@ -353,8 +350,6 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	if (COOKIES_ENABLED && cookie != NULL) indice += sprintf(respuesta + indice, "%s", cookie);
 	indice += sprintf(respuesta + indice, "\r\n");
 
-	// TODO: mal formada
-
 	free(cookie);
 
 	//
@@ -371,7 +366,7 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	while ((bytes_leidos = read(fd_fichero, &respuesta, REQUEST_BUFF_SIZE)) > 0) {
 		write(fd, respuesta, bytes_leidos);
 	}
-	if (tipo_respuesta != OK) close(fd_fichero);
+	if (tipo_respuesta != OK) close(fd_fichero); // En los no 'OK' se abre un nuevo fd 
 }
 
 // https://linux.die.net/man/3/fd_set
@@ -411,13 +406,8 @@ void process_web_request(int fd) {
 		
 		int bytes_totales = read(fd, buffer, REQUEST_BUFF_SIZE);
 		while (fd_has_something_to_read(fd)) {
-			printf("bytesleidos:%d\n", bytes_totales);
-			printf("buffer:%s\n", buffer);
 			bytes_totales += read(fd, buffer + bytes_totales, REQUEST_BUFF_SIZE - bytes_totales);
-			printf("bytesleidos:%d\n", bytes_totales);
-			printf("buffer:%s\n", buffer);
 		}
-		
 
 		//
 		// Comprobación de errores de lectura
@@ -502,7 +492,6 @@ void process_web_request(int fd) {
 			}
 			enviar_respuesta(fd, tipo_respuesta, fd_fichero, extension);
 		}
-		//free(path); free(query); free(extension)
 		free(peticion); close(fd_fichero);
 	}
 	close(fd); exit(EXIT_FAILURE);
