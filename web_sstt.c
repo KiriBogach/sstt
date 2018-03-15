@@ -25,16 +25,17 @@
 #define NOENCONTRADO					404
 #define UNSUPPORTED						415
 #define TOO_MANY_REQUESTS				429
-#define REQUEST_BUFF_SIZE				8192 // 8KiB
-#define DATE_BUFF_SIZE					128  // 128 caracteres
-#define COOKIE_BUFF_SIZE				128  // 128 caracteres
-#define EXTENSIONS_ENABLED				0 	 // 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
-#define PHP_ENABLED 					1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_ENABLED 				1	 // 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
-#define PERSISTENT_TIME  				0.2	 // Tiempo que dura la conexión persistente sin leer nada.
-#define COOKIES_ENABLED 				1	 // 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
-#define MAX_COOKIE_REQUEST 				10
-#define COOKIE_TIMEOUT	 				1	 // 10 minutos como indica en enunciado	
+#define REQUEST_BUFF_SIZE				8192 		// 8KiB
+#define DATE_BUFF_SIZE					128  		// 128 caracteres
+#define COOKIE_BUFF_SIZE				128  		// 128 caracteres
+#define EXTENSIONS_ENABLED				0 	 		// 0: Admite las extensiones en 'extensions'; 1: Permite todo tipo de extension
+#define PHP_ENABLED 					1	 		// 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define PERSISTENT_ENABLED 				1	 		// 0: No se ejecuturá php sobre los archivos '.php'; 1: Se ejecutará php
+#define PERSISTENT_SECONDS  			5	 		// Tiempo que dura la conexión persistente sin leer nada.
+#define READ_MICROSECONDS  				100000	 	// Tiempo de margen para leer del socket (útil para las pruebas con telnet)
+#define COOKIES_ENABLED 				1	 		// 0: No se ejecuturá la lógica de cookies; 1: Se ejecutará la lógica de cookies
+#define MAX_COOKIE_REQUEST 				10			// Número máximo de requests antes de que la cookie salte con un 429
+#define COOKIE_TIMEOUT	 				1	 		// 10 minutos como indica en enunciado	
 #define DEFAULT_HTML_FILE				"index.html"
 #define MY_EMAIL						"kyryl.bogachy%40um.es"
 
@@ -306,14 +307,6 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 	switch (tipo_respuesta) {
 	case OK:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 200 OK\r\n");
-		if (PHP_ENABLED && IS_PHP) {
-			indice += sprintf(respuesta + indice, "\r\n");
-			write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
-			php(fd, fd_fichero);
-			free(cookie);
-			close(fd);
-			exit(EXIT_SUCCESS);
-		}
 		break;
 	case BAD_REQUEST:
 		indice = sprintf(respuesta, "%s", "HTTP/1.1 400 Bad Request\r\n");
@@ -361,21 +354,28 @@ void enviar_respuesta(int fd, int tipo_respuesta, int fd_fichero, char* extensio
 
 	write(fd, respuesta, indice); // Se escribe todo lo incluido en 'respuesta'
 
+
+	if (PHP_ENABLED && IS_PHP && tipo_respuesta == OK) {
+		php(fd, fd_fichero);
+		close(fd);
+		exit(EXIT_SUCCESS);
+	}
+
 	/* Leemos el fichero y lo escribimos en nuestro socket */
 	int bytes_leidos;
 	while ((bytes_leidos = read(fd_fichero, &respuesta, REQUEST_BUFF_SIZE)) > 0) {
 		write(fd, respuesta, bytes_leidos);
 	}
-	if (tipo_respuesta != OK) close(fd_fichero); // En los no 'OK' se abre un nuevo fd 
+	if (tipo_respuesta != OK) close(fd_fichero); // En los no 'OK' se abre un nuevo fd
 }
 
 // https://linux.die.net/man/3/fd_set
-int fd_has_something_to_read(int fd) {
+int fd_has_something_to_read(int fd, long int sec, long int usec) {
 	/* 15 segundos de timeout si el fd ya no tiene más que leer */
 	struct timeval tv;
 	fd_set rfds;
-	tv.tv_sec = PERSISTENT_TIME;
-	tv.tv_usec = 0;
+	tv.tv_sec = sec;
+	tv.tv_usec = usec;
 	FD_ZERO(&rfds);
 	FD_SET(fd, &rfds);
 	if (select(fd + 1, &rfds, NULL, NULL, &tv) < 0) {
@@ -387,7 +387,7 @@ int fd_has_something_to_read(int fd) {
 }
 
 void process_web_request(int fd) {
-	while (PERSISTENT_ENABLED && fd_has_something_to_read(fd)) {
+	while (PERSISTENT_ENABLED && fd_has_something_to_read(fd, PERSISTENT_SECONDS, 0)) {
 		debug(LOG, "Request", "Ha llegado una peticion", fd);
 
 		//
@@ -403,9 +403,9 @@ void process_web_request(int fd) {
 		//
 		// Leer la petición HTTP
 		//
-		
+
 		int bytes_totales = read(fd, buffer, REQUEST_BUFF_SIZE);
-		while (fd_has_something_to_read(fd)) {
+		while (fd_has_something_to_read(fd, 0, READ_MICROSECONDS)) {
 			bytes_totales += read(fd, buffer + bytes_totales, REQUEST_BUFF_SIZE - bytes_totales);
 		}
 
